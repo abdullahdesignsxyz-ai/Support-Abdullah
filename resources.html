@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="bn">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>সব রিসোর্স · মুক্তঘর</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header id="siteHeader"></header>
+
+  <main>
+    <section class="page-hero">
+      <div class="container" id="resPageHead"></div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="toolbar">
+          <div class="search-box">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <input id="resSearchInput" type="search" aria-label="রিসোর্স খুঁজুন">
+            <button type="button" class="search-clear" id="resSearchClear" aria-label="Clear search">✕</button>
+          </div>
+          <select id="resKindSelect" class="select-input" aria-label="Format"></select>
+          <select id="resSortSelect" class="select-input" aria-label="সাজান"></select>
+        </div>
+
+        <div id="resCatMount" class="cat-strip"></div>
+        <p id="resCountMount" class="num" style="font-weight:700;color:var(--muted);margin-bottom:16px;"></p>
+        <div id="resGridMount" class="resource-grid"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="siteFooter"></footer>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+  <script>MG.init("resources");</script>
+</body>
+</html>
