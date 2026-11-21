@@ -4,13 +4,19 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow, noarchive">
-  <title>Owner Studio · মুক্তঘর</title>
+  <title>Owner Studio · শিখি</title>
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="css/styles.css">
+  <script>(function(){var d=document.documentElement;if(document.fonts){d.classList.add("fonts-loading");var u=function(){d.classList.remove("fonts-loading");};Promise.all([document.fonts.load('800 16px "Anek Bangla"','\u0985'),document.fonts.load('700 16px "Geist"','A')]).then(u,u);setTimeout(u,240);}})();</script>
   <style>
     body.vault-body {
-      background: #fffafa;
+      background: var(--bg-warm);
       min-height: 100dvh;
+      padding-bottom: 0 !important;
+    }
+
+    body.vault-body .toast {
+      bottom: 22px;
     }
 
     /* Lock Screen */
@@ -19,34 +25,29 @@
       display: grid;
       place-items: center;
       padding: 20px;
-      background:
-        radial-gradient(50% 42% at 50% 18%, rgba(255, 199, 0, 0.22), transparent 72%),
-        radial-gradient(45% 40% at 85% 82%, rgba(215, 25, 32, 0.1), transparent 70%),
-        #ffffff;
+      background: var(--bg-warm);
     }
 
     .vault-lock-card {
       width: 100%;
       max-width: 420px;
-      background: #ffffff;
-      border: 2px solid var(--border);
-      border-radius: 24px;
-      padding: 34px 30px;
-      box-shadow: var(--shadow-lg);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      padding: clamp(24px, 5vw, 34px) clamp(20px, 5vw, 30px);
       text-align: center;
     }
 
     .vault-shield {
-      width: 56px;
-      height: 56px;
+      width: 54px;
+      height: 54px;
       margin: 0 auto 16px;
-      border-radius: 16px;
+      border-radius: 15px;
       background: var(--red);
-      border: 3px solid var(--yellow);
+      border: 2px solid var(--yellow);
       color: #ffffff;
       display: grid;
       place-items: center;
-      box-shadow: 0 10px 24px -8px rgba(215, 25, 32, 0.5);
     }
 
     .vault-lock-card.shake {
@@ -191,7 +192,6 @@
       background: var(--red);
       color: #ffffff;
       font-weight: 700;
-      box-shadow: 0 6px 16px -6px rgba(215, 25, 32, 0.5);
     }
 
     .vault-nav-badge {
@@ -211,19 +211,31 @@
       gap: 8px;
     }
 
+    .vault-sidebar-foot .btn {
+      white-space: nowrap;
+    }
+
     @media (max-width: 920px) {
       .vault-sidebar-foot {
         display: flex;
         flex-wrap: wrap;
+        align-items: center;
         margin-top: 0;
         padding-top: 10px;
       }
     }
 
+    @media (max-width: 640px) {
+      body.vault-body .toolbar .select-input {
+        grid-column: 1 / -1;
+      }
+    }
+
     .vault-main {
-      padding: clamp(20px, 3.2vw, 38px);
+      padding: clamp(18px, 3.2vw, 38px);
       max-width: 1180px;
       width: 100%;
+      min-width: 0;
     }
 
     .vault-topbar {
@@ -240,6 +252,12 @@
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 14px;
       margin-bottom: 24px;
+    }
+
+    .vault-kpi-grid .stat-card {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
     }
 
     @media (max-width: 720px) {
@@ -265,7 +283,25 @@
 
     .vault-res-row:hover {
       border-color: var(--border-strong);
-      background: #fffdfb;
+      background: var(--surface-tint);
+    }
+
+    @media (max-width: 640px) {
+      .vault-res-row {
+        grid-template-columns: 48px minmax(0, 1fr);
+        gap: 10px 12px;
+      }
+      .vault-thumb {
+        width: 48px;
+        height: 60px;
+      }
+      .vault-res-row .vault-actions {
+        grid-column: 1 / -1;
+        justify-content: flex-start;
+      }
+      .vault-form-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
     }
 
     .vault-thumb {

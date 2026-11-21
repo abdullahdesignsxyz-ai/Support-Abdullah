@@ -2,10 +2,12 @@
 <html lang="bn">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>প্রজেক্ট সাপোর্ট · মুক্তঘর</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <title>সাপোর্ট · শিখি</title>
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="css/styles.css">
+  <script>(function(){var d=document.documentElement;try{if(localStorage.getItem("shikhi_theme")==="dark")d.setAttribute("data-theme","dark");}catch(e){}if(document.fonts){d.classList.add("fonts-loading");var u=function(){d.classList.remove("fonts-loading");};Promise.all([document.fonts.load('800 16px "Anek Bangla"','\u0985'),document.fonts.load('700 16px "Geist"','A')]).then(u,u);setTimeout(u,240);}})();</script>
 </head>
 <body>
   <header id="siteHeader"></header>
@@ -17,11 +19,11 @@
 
     <section class="section">
       <div class="container">
-        <div class="two-col" style="grid-template-columns:minmax(0,1.08fr) minmax(0,0.92fr);margin-bottom:52px;">
+        <div class="two-col support-two-col">
           <div class="card" id="supportFormMount"></div>
           <div id="supportGuideMount" class="support-guide-side"></div>
         </div>
-        <div class="card" id="supportersWall"></div>
+        <div class="card" id="supportersWall" hidden></div>
       </div>
     </section>
   </main>
