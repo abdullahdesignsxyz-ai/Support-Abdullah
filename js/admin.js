@@ -503,6 +503,20 @@
     requestAnimationFrame(() => modal.classList.add("open"));
   }
 
+  function buildExportState() {
+    const s = loadState();
+    const act = loadActivity();
+    let totalDl = 0;
+    s.resources = (s.resources || []).map((r) => {
+      const mergedDl = (Number(r.downloads) || 0) + (Number(act.downloads?.[r.id]) || 0);
+      const mergedVw = (Number(r.views) || 0) + (Number(act.views?.[r.id]) || 0);
+      totalDl += mergedDl;
+      return { ...r, downloads: mergedDl, views: mergedVw };
+    });
+    s.stats = { ...(s.stats || {}), resource_count: s.resources.length, total_downloads: totalDl };
+    return s;
+  }
+
   function renderStudio() {
     document.documentElement.lang = getLang();
     const state = loadState();
@@ -510,7 +524,11 @@
     const pendingPayments = getPendingPayments(state, act);
     const pendingInbox = (act.messages || []).filter((m) => m.status !== "resolved").length;
     const totalDownloads = state.resources.reduce(
-      (sum, r) => sum + (Number(r.downloads) || 0) + (act.downloads?.[r.id] || 0),
+      (sum, r) => sum + (Number(r.downloads) || 0) + (Number(act.downloads?.[r.id]) || 0),
+      0
+    );
+    const totalViews = state.resources.reduce(
+      (sum, r) => sum + (Number(r.views) || 0) + (Number(act.views?.[r.id]) || 0),
       0
     );
     const bkashNumber = state.settings.pay?.bkash || "01754441574";
@@ -589,7 +607,7 @@
     });
 
     document.getElementById("quickExportDataBtn")?.addEventListener("click", () => {
-      const s = loadState();
+      const s = buildExportState();
       const jsOut = `// Shikhi (shikhi.xyz) site catalog (exported from private Owner Studio)\nwindow.SHIKHI_DATA = ${JSON.stringify(s, null, 2)};\n`;
       downloadFile("data.js", jsOut, "application/javascript;charset=utf-8");
       showToast(t("data.js ডাউনলোড হয়েছে! html/js/data.js-এ রিপ্লেস করুন।", "data.js exported! Replace html/js/data.js to make live permanently."));
@@ -620,7 +638,7 @@
     const panel = document.getElementById("vaultPanelBody");
 
     if (activeTab === "overview") {
-      renderOverviewTab(panel, state, act, pendingPayments, pendingInbox, totalDownloads, bkashNumber);
+      renderOverviewTab(panel, state, act, pendingPayments, pendingInbox, totalDownloads, totalViews, bkashNumber);
     } else if (activeTab === "resources") {
       renderResourcesTab(panel, state, act);
     } else if (activeTab === "payments") {
@@ -632,7 +650,7 @@
     }
   }
 
-  function renderOverviewTab(panel, state, act, pendingPayments, pendingInbox, totalDownloads, bkashNumber) {
+  function renderOverviewTab(panel, state, act, pendingPayments, pendingInbox, totalDownloads, totalViews, bkashNumber) {
     panel.innerHTML = `
       <div class="vault-topbar">
         <div>
@@ -659,8 +677,8 @@
           <div class="stat-val num">${formatNum(state.resources.length)}</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">${t("মোট ডাউনলোড", "Total Downloads")}</div>
-          <div class="stat-val num">${formatNum(totalDownloads)}</div>
+          <div class="stat-label">${t("মোট ডাউনলোড · ভিউ", "Downloads · Views")}</div>
+          <div class="stat-val num">${formatNum(totalDownloads)} <span style="font-size:15px;font-weight:700;color:var(--muted);">· 👁 ${formatNum(totalViews)}</span></div>
         </div>
         <div class="stat-card ${pendingPayments.length ? "highlight" : ""}">
           <div class="stat-label">${t("বিকাশ যাচাই বাকি", "Pending bKash")}</div>
@@ -1147,7 +1165,7 @@
     });
 
     document.getElementById("expDataJsBtn")?.addEventListener("click", () => {
-      const s = loadState();
+      const s = buildExportState();
       const jsOut = `// Shikhi (shikhi.xyz) site catalog (exported from private Owner Studio)\nwindow.SHIKHI_DATA = ${JSON.stringify(s, null, 2)};\n`;
       downloadFile("data.js", jsOut, "application/javascript;charset=utf-8");
       showToast(t("data.js ডাউনলোড হয়েছে!", "Exported data.js!"));
@@ -1190,6 +1208,18 @@
     } else {
       renderLockScreen();
     }
+    window.addEventListener("storage", (e) => {
+      if (sessionStorage.getItem(SESSION_UNLOCK) !== getActiveHash()) return;
+      if (e.key !== STORAGE_ACT && e.key !== STORAGE_STATE) return;
+      const modalOpen = document.getElementById("resEditorModal")?.classList.contains("open");
+      const editingInput = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
+      if (!modalOpen && !editingInput) renderStudio();
+    });
+    window.addEventListener("pageshow", (e) => {
+      if (e.persisted && sessionStorage.getItem(SESSION_UNLOCK) === getActiveHash()) {
+        renderStudio();
+      }
+    });
   }
 
   boot();

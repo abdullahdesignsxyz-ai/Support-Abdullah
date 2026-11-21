@@ -101,39 +101,138 @@
       .replaceAll('"', "&quot;");
   }
 
-  function getActivity() {
-    try {
-      const raw = JSON.parse(localStorage.getItem(STORAGE_ACT) || "null");
-      if (raw && typeof raw === "object") {
-        return {
-          supports: [],
-          donations: [],
-          help_requests: [],
-          messages: [],
-          comments: [],
-          downloads: {},
-          views: {},
-          ...raw,
-        };
-      }
-    } catch {}
+  const ACT_NAME_PREFIX = "__SHIKHI_ACT__:";
+  let memActivity = null;
+
+  function emptyActivity() {
     return { supports: [], donations: [], help_requests: [], messages: [], comments: [], downloads: {}, views: {} };
   }
 
+  function readWindowNameActivity() {
+    try {
+      if (typeof window.name === "string" && window.name.startsWith(ACT_NAME_PREFIX)) {
+        const parsed = JSON.parse(window.name.slice(ACT_NAME_PREFIX.length));
+        if (parsed && typeof parsed === "object") return { ...emptyActivity(), ...parsed };
+      }
+    } catch {}
+    return null;
+  }
+
+  function getActivity() {
+    let lsAct = null;
+    try {
+      const raw = JSON.parse(localStorage.getItem(STORAGE_ACT) || "null");
+      if (raw && typeof raw === "object") lsAct = { ...emptyActivity(), ...raw };
+    } catch {}
+
+    // On file:// (where Safari/Firefox isolate localStorage per HTML file) or blocked storage, fall back to window.name
+    if (location.protocol === "file:" || !lsAct) {
+      const wnAct = readWindowNameActivity();
+      if (wnAct && lsAct) {
+        const merged = {
+          ...lsAct,
+          downloads: { ...(wnAct.downloads || {}), ...(lsAct.downloads || {}) },
+          views: { ...(wnAct.views || {}), ...(lsAct.views || {}) },
+        };
+        for (const [k, v] of Object.entries(wnAct.downloads || {})) {
+          merged.downloads[k] = Math.max(Number(merged.downloads[k]) || 0, Number(v) || 0);
+        }
+        for (const [k, v] of Object.entries(wnAct.views || {})) {
+          merged.views[k] = Math.max(Number(merged.views[k]) || 0, Number(v) || 0);
+        }
+        memActivity = merged;
+        return merged;
+      }
+      if (wnAct) {
+        memActivity = wnAct;
+        return wnAct;
+      }
+    }
+    if (lsAct) {
+      memActivity = lsAct;
+      return lsAct;
+    }
+    return memActivity ? { ...emptyActivity(), ...memActivity } : emptyActivity();
+  }
+
   function saveActivity(act) {
-    localStorage.setItem(STORAGE_ACT, JSON.stringify(act));
+    const clean = { ...emptyActivity(), ...(act || {}) };
+    memActivity = clean;
+    try {
+      localStorage.setItem(STORAGE_ACT, JSON.stringify(clean));
+    } catch {}
+    if (location.protocol === "file:" || (() => { try { return !localStorage.getItem(STORAGE_ACT); } catch { return true; } })()) {
+      try {
+        window.name = ACT_NAME_PREFIX + JSON.stringify(clean);
+      } catch {}
+    }
   }
 
   function getViewCount(res) {
     const act = getActivity();
-    return (Number(res.views) || 0) + (act.views?.[res.id] || 0);
+    return (Number(res.views) || 0) + (Number(act.views?.[res.id]) || 0);
+  }
+
+  function getDownloadCount(res) {
+    const act = getActivity();
+    return (Number(res.downloads) || 0) + (Number(act.downloads?.[res.id]) || 0);
+  }
+
+  function syncLiveStats() {
+    const act = getActivity();
+    document.querySelectorAll("[data-dl-id]").forEach((el) => {
+      const id = el.getAttribute("data-dl-id");
+      const res = DATA.resources.find((x) => x.id === id);
+      if (res) el.textContent = formatNum(getDownloadCount(res));
+    });
+    document.querySelectorAll("[data-vw-id]").forEach((el) => {
+      const id = el.getAttribute("data-vw-id");
+      const res = DATA.resources.find((x) => x.id === id);
+      if (res) el.textContent = formatNum(getViewCount(res));
+    });
+    const homeDlEl = document.getElementById("homeTotalDlVal");
+    if (homeDlEl) {
+      const totalDl = DATA.resources.reduce((sum, r) => sum + getDownloadCount(r), 0);
+      homeDlEl.textContent = formatNum(totalDl);
+    }
+    const homeSupEl = document.getElementById("homeTotalSupVal");
+    if (homeSupEl) {
+      const verifiedIds = new Set(DATA.supporters.map((x) => x.id));
+      const localSupCount = (act.supports || []).filter((x) => !verifiedIds.has(x.id) && x.status !== "rejected").length;
+      homeSupEl.textContent = formatNum((Number(DATA.stats.verified_supporters_count) || 0) + localSupCount);
+    }
+    const detStat = document.getElementById("detStatLine");
+    if (detStat) {
+      const rid = detStat.getAttribute("data-res-id");
+      const res = DATA.resources.find((x) => x.id === rid);
+      if (res) {
+        detStat.textContent = `↓ ${formatNum(getDownloadCount(res))} ${t("ডাউনলোড", "downloads")} · 👁 ${formatNum(getViewCount(res))} ${t("ভিউ", "views")}`;
+      }
+    }
+    const inStat = document.getElementById("resInsideStat");
+    if (inStat) {
+      const rid = inStat.getAttribute("data-res-id");
+      const res = DATA.resources.find((x) => x.id === rid);
+      if (res) {
+        inStat.textContent = `↓ ${formatNum(getDownloadCount(res))} · 👁 ${formatNum(getViewCount(res))}`;
+      }
+    }
   }
 
   function recordView(resId) {
     const act = getActivity();
     act.views = act.views || {};
-    act.views[resId] = (act.views[resId] || 0) + 1;
+    act.views[resId] = (Number(act.views[resId]) || 0) + 1;
     saveActivity(act);
+    syncLiveStats();
+  }
+
+  function recordDownload(resId) {
+    const act = getActivity();
+    act.downloads = act.downloads || {};
+    act.downloads[resId] = (Number(act.downloads[resId]) || 0) + 1;
+    saveActivity(act);
+    syncLiveStats();
   }
 
   function showToast(msg) {
@@ -170,11 +269,6 @@
 
   function resourceBySlug(slug) {
     return DATA.resources.find((r) => r.slug === slug || r.id === slug);
-  }
-
-  function getDownloadCount(res) {
-    const act = getActivity();
-    return res.downloads + (act.downloads?.[res.id] || 0);
   }
 
   /* ---------- Shared Header & Footer ---------- */
@@ -434,7 +528,7 @@
       <article class="res-card">
         <div class="res-thumb-wrap">
           <a href="resource.html?slug=${encodeURIComponent(r.slug)}" aria-label="${esc(title)}" style="display:block;width:100%;height:100%;">
-            <img class="res-thumb" src="${esc(r.cover)}" alt="${esc(title)}" loading="lazy"
+            <img class="res-thumb" src="${esc(r.cover)}" alt="${esc(title)}" loading="lazy" decoding="async"
                  onerror="this.style.display='none'">
           </a>
         </div>
@@ -446,11 +540,11 @@
             <div class="res-meta num">
               <span class="res-stat-item" title="${t("ডাউনলোড", "Downloads")}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                ${formatNum(dl)}
+                <span data-dl-id="${esc(r.id)}">${formatNum(dl)}</span>
               </span>
               <span class="res-stat-item" title="${t("ভিউ", "Views")}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-                ${formatNum(views)}
+                <span data-vw-id="${esc(r.id)}">${formatNum(views)}</span>
               </span>
             </div>
             <span class="badge-free">${esc((r.file_kind || "pdf").toUpperCase())}</span>
@@ -503,13 +597,11 @@
 
   function enhanceDetailsAccordion(rootEl) {
     if (!rootEl) return;
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduced) return;
     rootEl.querySelectorAll("details").forEach((det) => {
       if (det.dataset.smoothBound) return;
       det.dataset.smoothBound = "1";
       const summary = det.querySelector("summary");
-      if (!summary) return;
+      if (!summary || typeof det.animate !== "function") return;
       let anim = null;
       let isClosing = false;
       let isExpanding = false;
@@ -575,7 +667,7 @@
   function closeModal(id) {
     const el = document.getElementById(id);
     if (el) el.classList.remove("open");
-    const anyOpen = document.querySelector(".modal-backdrop.open");
+    const anyOpen = document.querySelector(".modal-backdrop.open, #mobileNav.open");
     if (!anyOpen) document.body.style.overflow = "";
     if (id === "mgDownloadModal" && dlInterval) {
       clearInterval(dlInterval);
@@ -621,19 +713,18 @@
     const total = remaining;
     const circ = 2 * Math.PI * 35;
 
-    function recordDl() {
-      const act = getActivity();
-      act.downloads = act.downloads || {};
-      act.downloads[r.id] = (act.downloads[r.id] || 0) + 1;
-      saveActivity(act);
-      const detStat = document.getElementById("detStatLine");
-      if (detStat) {
-        detStat.textContent = `↓ ${formatNum(getDownloadCount(r))} ${t("ডাউনলোড", "downloads")} · 👁 ${formatNum(getViewCount(r))} ${t("ভিউ", "views")}`;
-      }
-      const inStat = document.getElementById("resInsideStat");
-      if (inStat) {
-        inStat.textContent = `↓ ${formatNum(getDownloadCount(r))} · 👁 ${formatNum(getViewCount(r))}`;
-      }
+    let countedThisDrawer = false;
+    function recordDlOnce() {
+      if (countedThisDrawer) return;
+      countedThisDrawer = true;
+      recordDownload(r.id);
+    }
+
+    function bindDownloadTrack(el) {
+      if (!el) return;
+      el.addEventListener("click", recordDlOnce);
+      el.addEventListener("auxclick", recordDlOnce);
+      el.addEventListener("contextmenu", recordDlOnce);
     }
 
     body.innerHTML = `
@@ -664,7 +755,7 @@
       </div>
     `;
 
-    document.getElementById("dlSkipBtn").addEventListener("click", recordDl);
+    bindDownloadTrack(document.getElementById("dlSkipBtn"));
     showModalSmooth(modal);
 
     clearInterval(dlInterval);
@@ -673,7 +764,11 @@
       const ring = document.getElementById("dlRing");
       const numEl = document.getElementById("dlCount");
       const readyBox = document.getElementById("dlReadyBox");
-      if (!ring || !numEl || !readyBox) return;
+      if (!ring || !numEl || !readyBox) {
+        clearInterval(dlInterval);
+        dlInterval = null;
+        return;
+      }
 
       if (remaining > 0) {
         numEl.textContent = formatNum(remaining);
@@ -683,6 +778,7 @@
         dlInterval = null;
         numEl.textContent = "✓";
         ring.style.strokeDashoffset = String(circ);
+        recordDlOnce();
         readyBox.innerHTML = `
           <p style="font-size:14.5px;color:var(--red-deep);font-weight:700;margin-bottom:12px;">
             ${t("আপনার ফাইল ডাউনলোডের জন্য প্রস্তুত!", "Your file is ready to download!")}
@@ -696,7 +792,7 @@
             </a>
           </div>
         `;
-        document.getElementById("dlGoBtn")?.addEventListener("click", recordDl);
+        bindDownloadTrack(document.getElementById("dlGoBtn"));
       }
     }, 1000);
   }
@@ -942,11 +1038,15 @@
   }
 
   /* ---------- Supporters & Reviews Slider Loop (Hidden When Empty, Appears Automatically On Support) ---------- */
-  const supShowcaseState = { paused: false };
+  const supShowcaseState = { paused: false, observers: {} };
 
   function mountSupportersShowcase(containerId, opts = {}) {
     const mount = document.getElementById(containerId);
     if (!mount) return;
+    if (supShowcaseState.observers[containerId]) {
+      try { supShowcaseState.observers[containerId].disconnect(); } catch {}
+      delete supShowcaseState.observers[containerId];
+    }
     const sectionWrap = opts.sectionId ? document.getElementById(opts.sectionId) : null;
 
     const act = getActivity();
@@ -1041,6 +1141,18 @@
       const pb = document.getElementById(`${containerId}_pauseBtn`);
       if (pb) pb.textContent = supShowcaseState.paused ? `▶ ${t("চালু করুন", "Play")}` : `⏸ ${t("বিরতি", "Pause")}`;
     });
+
+    const sliderEl = document.getElementById(`${containerId}_slider`);
+    if (typeof IntersectionObserver === "function" && sliderEl) {
+      const obs = new IntersectionObserver(
+        (entries) => {
+          sliderEl.classList.toggle("offscreen-paused", entries[0]?.isIntersecting === false);
+        },
+        { threshold: 0.02 }
+      );
+      obs.observe(sliderEl);
+      supShowcaseState.observers[containerId] = obs;
+    }
   }
 
   /* ---------- Page Controllers ---------- */
@@ -1171,15 +1283,9 @@
     const sceneEl = document.getElementById("heroBookScene");
     const leftPageBtn = document.getElementById("bookLeftPage");
     const rightPageBtn = document.getElementById("bookRightPage");
-    const castLeft = document.getElementById("bookCastLeft");
-    const castRight = document.getElementById("bookCastRight");
     const leafEl = document.getElementById("bookLeaf");
     const leafFrontEl = document.getElementById("bookLeafFront");
     const leafBackEl = document.getElementById("bookLeafBack");
-    const frontShade = document.getElementById("bookFrontShade");
-    const frontSheen = document.getElementById("bookFrontSheen");
-    const backShade = document.getElementById("bookBackShade");
-    const backSheen = document.getElementById("bookBackSheen");
 
     const leftSlots = [...(leftPageBtn?.querySelectorAll(".book-slot-img") || [])];
     const rightSlots = [...(rightPageBtn?.querySelectorAll(".book-slot-img") || [])];
@@ -1192,18 +1298,20 @@
       }
     }
 
+    const FIRST_HOLD_MS = 550;
     const HOLD_MS = 1150;
-    const TURN_MS = 820;
-    const TURN_EASE = "cubic-bezier(0.32, 0.08, 0.24, 1)";
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const TURN_FALLBACK_MS = 920;
 
     let alive = true;
     let hovered = false;
+    let inView = true;
     let turning = false;
+    let hasTurnedOnce = false;
     let holdTimer = 0;
-    let activeAnims = [];
+    let turnFallbackTimer = 0;
     let pendingState = null;
     let suppressClickUntil = 0;
+    let bookObserver = null;
 
     function syncPageLabels() {
       if (N === 0) return;
@@ -1213,22 +1321,17 @@
       if (rightPageBtn && rItem) rightPageBtn.setAttribute("aria-label", t(rItem.title_bn, rItem.title_en));
     }
 
-    function cancelAnims() {
-      for (const a of activeAnims) {
-        try { a.cancel(); } catch {}
-      }
-      activeAnims = [];
-    }
-
-    function scheduleNextTurn() {
+    function scheduleNextTurn(delayOverride) {
       clearTimeout(holdTimer);
-      if (!alive || N <= 1 || hovered || heroState.paused || document.hidden) return;
+      if (!alive || N <= 1 || hovered || !inView || heroState.paused || document.hidden) return;
+      const waitMs = typeof delayOverride === "number" ? delayOverride : (hasTurnedOnce ? HOLD_MS : FIRST_HOLD_MS);
       holdTimer = setTimeout(() => {
-        if (alive && !hovered && !heroState.paused && !document.hidden) startTurn(1);
-      }, reducedMotion ? 1800 : HOLD_MS);
+        if (alive && !hovered && inView && !heroState.paused && !document.hidden) startTurn(1);
+      }, waitMs);
     }
 
     function commitTurn() {
+      clearTimeout(turnFallbackTimer);
       if (pendingState) {
         if (pendingState.settledSide === "left") {
           setActiveSlot(leftSlots, pendingState.settledIdx);
@@ -1238,25 +1341,16 @@
         heroState.index = pendingState.nextIdx;
         pendingState = null;
       }
-      leafEl?.classList.remove("is-turning");
-      cancelAnims();
+      sceneEl?.classList.remove("is-turning-fwd", "is-turning-bwd");
       turning = false;
+      hasTurnedOnce = true;
       syncPageLabels();
     }
 
     function startTurn(dir = 1) {
-      if (!alive || N <= 1) return;
+      if (!alive || N <= 1 || !sceneEl || !leafEl) return;
       clearTimeout(holdTimer);
       if (turning) commitTurn();
-
-      if (reducedMotion || typeof leafEl?.animate !== "function") {
-        heroState.index = (heroState.index + (dir > 0 ? 1 : -1) + N) % N;
-        setActiveSlot(rightSlots, heroState.index);
-        setActiveSlot(leftSlots, (heroState.index - 1 + N) % N);
-        syncPageLabels();
-        scheduleNextTurn();
-        return;
-      }
 
       const forward = dir > 0;
       let leafIdx, nextIdx, settledSide;
@@ -1266,7 +1360,6 @@
         settledSide = "left";
         setActiveSlot(leafFrontSlots, leafIdx);
         setActiveSlot(leafBackSlots, leafIdx);
-        leafEl.classList.add("is-turning");
         setActiveSlot(rightSlots, nextIdx);
       } else {
         const prevIdx = (heroState.index - 1 + N) % N;
@@ -1276,67 +1369,29 @@
         settledSide = "right";
         setActiveSlot(leafFrontSlots, leafIdx);
         setActiveSlot(leafBackSlots, leafIdx);
-        leafEl.classList.add("is-turning");
         setActiveSlot(leftSlots, prevLeftIdx);
       }
 
       turning = true;
       pendingState = { nextIdx, settledSide, settledIdx: leafIdx };
 
-      const opts = { duration: TURN_MS, easing: TURN_EASE, fill: "forwards" };
-      const leafKf = forward
-        ? [
-            { transform: "translate3d(0,0,1px) rotateY(0deg)" },
-            { transform: "translate3d(0,0,4px) rotateY(-90deg)", offset: 0.5 },
-            { transform: "translate3d(0,0,1px) rotateY(-180deg)" },
-          ]
-        : [
-            { transform: "translate3d(0,0,1px) rotateY(-180deg)" },
-            { transform: "translate3d(0,0,4px) rotateY(-90deg)", offset: 0.5 },
-            { transform: "translate3d(0,0,1px) rotateY(0deg)" },
-          ];
+      sceneEl.classList.remove("is-turning-fwd", "is-turning-bwd");
+      void leafEl.offsetWidth;
+      sceneEl.classList.add(forward ? "is-turning-fwd" : "is-turning-bwd");
 
-      const leafAnim = leafEl.animate(leafKf, opts);
-      const a2 = frontShade.animate(
-        forward ? [{ opacity: 0 }, { opacity: 0.26, offset: 0.5 }, { opacity: 0, offset: 0.52 }, { opacity: 0 }]
-                : [{ opacity: 0 }, { opacity: 0, offset: 0.48 }, { opacity: 0.26, offset: 0.5 }, { opacity: 0 }],
-        opts
-      );
-      const a3 = backShade.animate(
-        forward ? [{ opacity: 0 }, { opacity: 0, offset: 0.48 }, { opacity: 0.24, offset: 0.5 }, { opacity: 0 }]
-                : [{ opacity: 0 }, { opacity: 0.24, offset: 0.5 }, { opacity: 0, offset: 0.52 }, { opacity: 0 }],
-        opts
-      );
-      const a4 = frontSheen.animate(
-        forward
-          ? [{ opacity: 0, transform: "translate3d(-40%,0,0)" }, { opacity: 0.24, transform: "translate3d(10%,0,0)", offset: 0.45 }, { opacity: 0, transform: "translate3d(42%,0,0)", offset: 0.52 }, { opacity: 0, transform: "translate3d(42%,0,0)" }]
-          : [{ opacity: 0, transform: "translate3d(42%,0,0)" }, { opacity: 0, transform: "translate3d(42%,0,0)", offset: 0.48 }, { opacity: 0.24, transform: "translate3d(10%,0,0)", offset: 0.55 }, { opacity: 0, transform: "translate3d(-40%,0,0)" }],
-        opts
-      );
-      const a5 = backSheen.animate(
-        forward
-          ? [{ opacity: 0, transform: "translate3d(40%,0,0)" }, { opacity: 0, transform: "translate3d(40%,0,0)", offset: 0.48 }, { opacity: 0.2, transform: "translate3d(5%,0,0)", offset: 0.56 }, { opacity: 0, transform: "translate3d(-42%,0,0)" }]
-          : [{ opacity: 0, transform: "translate3d(-42%,0,0)" }, { opacity: 0.2, transform: "translate3d(5%,0,0)", offset: 0.44 }, { opacity: 0, transform: "translate3d(40%,0,0)", offset: 0.52 }, { opacity: 0, transform: "translate3d(40%,0,0)" }],
-        opts
-      );
-      const a6 = castRight.animate(
-        forward ? [{ opacity: 0 }, { opacity: 0.42, offset: 0.34 }, { opacity: 0, offset: 0.54 }, { opacity: 0 }]
-                : [{ opacity: 0 }, { opacity: 0, offset: 0.46 }, { opacity: 0.42, offset: 0.66 }, { opacity: 0 }],
-        opts
-      );
-      const a7 = castLeft.animate(
-        forward ? [{ opacity: 0 }, { opacity: 0, offset: 0.46 }, { opacity: 0.42, offset: 0.66 }, { opacity: 0 }]
-                : [{ opacity: 0 }, { opacity: 0.42, offset: 0.34 }, { opacity: 0, offset: 0.54 }, { opacity: 0 }],
-        opts
-      );
-
-      activeAnims = [leafAnim, a2, a3, a4, a5, a6, a7];
-      leafAnim.onfinish = () => {
-        if (!alive) return;
+      clearTimeout(turnFallbackTimer);
+      turnFallbackTimer = setTimeout(() => {
+        if (!alive || !turning) return;
         commitTurn();
         scheduleNextTurn();
-      };
+      }, TURN_FALLBACK_MS);
     }
+
+    leafEl?.addEventListener("animationend", (e) => {
+      if (e.target !== leafEl || !alive || !turning) return;
+      commitTurn();
+      scheduleNextTurn();
+    });
 
     if (N > 0) {
       leftPageBtn?.addEventListener("click", () => {
@@ -1360,11 +1415,44 @@
     };
 
     if (N > 1) {
-      boxEl?.addEventListener("mouseenter", () => { hovered = true; clearTimeout(holdTimer); });
-      boxEl?.addEventListener("mouseleave", () => { hovered = false; if (!turning) scheduleNextTurn(); });
-      boxEl?.addEventListener("focusin", () => { hovered = true; clearTimeout(holdTimer); });
-      boxEl?.addEventListener("focusout", () => { hovered = false; if (!turning) scheduleNextTurn(); });
+      // Pause on hover ONLY for real mouse pointers (touchscreens NEVER get stuck hovered!)
+      boxEl?.addEventListener("pointerenter", (e) => {
+        if (e.pointerType !== "mouse") return;
+        hovered = true;
+        clearTimeout(holdTimer);
+      });
+      boxEl?.addEventListener("pointerleave", (e) => {
+        if (e.pointerType !== "mouse") return;
+        hovered = false;
+        if (!turning) scheduleNextTurn();
+      });
+      sceneEl?.addEventListener("focus", () => {
+        if (sceneEl.matches(":focus-visible")) {
+          hovered = true;
+          clearTimeout(holdTimer);
+        }
+      });
+      sceneEl?.addEventListener("blur", () => {
+        if (hovered) {
+          hovered = false;
+          if (!turning) scheduleNextTurn();
+        }
+      });
       document.addEventListener("visibilitychange", onVisChange);
+      if (typeof IntersectionObserver === "function" && boxEl) {
+        bookObserver = new IntersectionObserver(
+          (entries) => {
+            inView = entries[0]?.isIntersecting !== false;
+            if (!inView) {
+              clearTimeout(holdTimer);
+            } else if (!turning) {
+              scheduleNextTurn();
+            }
+          },
+          { threshold: 0.01, rootMargin: "80px 0px" }
+        );
+        bookObserver.observe(boxEl);
+      }
 
       sceneEl?.addEventListener("keydown", (e) => {
         if (e.key === "ArrowRight") {
@@ -1376,35 +1464,58 @@
         }
       });
 
-      // Swipe / Drag left or right on phone & PC to turn book pages manually
-      let ptrStartX = 0;
-      let ptrStartY = 0;
-      let ptrActive = false;
+      // Reliable swipe on BOTH iOS/Android touchscreens AND desktop mouse drag
+      let swipeX = 0;
+      let swipeY = 0;
+      let swipeActive = false;
+      let usedTouch = false;
+
+      sceneEl?.addEventListener("touchstart", (e) => {
+        if (e.touches.length !== 1) return;
+        usedTouch = true;
+        swipeX = e.touches[0].clientX;
+        swipeY = e.touches[0].clientY;
+        swipeActive = true;
+      }, { passive: true });
+      sceneEl?.addEventListener("touchend", (e) => {
+        if (!swipeActive || !e.changedTouches.length) return;
+        swipeActive = false;
+        const dx = e.changedTouches[0].clientX - swipeX;
+        const dy = e.changedTouches[0].clientY - swipeY;
+        if (Math.abs(dx) > 26 && Math.abs(dx) > Math.abs(dy)) {
+          suppressClickUntil = Date.now() + 340;
+          startTurn(dx < 0 ? 1 : -1);
+        }
+      }, { passive: true });
+      sceneEl?.addEventListener("touchcancel", () => { swipeActive = false; }, { passive: true });
+
       sceneEl?.addEventListener("pointerdown", (e) => {
-        if (e.button && e.button !== 0) return;
-        ptrStartX = e.clientX;
-        ptrStartY = e.clientY;
-        ptrActive = true;
+        if (usedTouch || e.pointerType === "touch" || (e.button && e.button !== 0)) return;
+        swipeX = e.clientX;
+        swipeY = e.clientY;
+        swipeActive = true;
       });
       sceneEl?.addEventListener("pointerup", (e) => {
-        if (!ptrActive) return;
-        ptrActive = false;
-        const dx = e.clientX - ptrStartX;
-        const dy = e.clientY - ptrStartY;
-        if (Math.abs(dx) > 32 && Math.abs(dx) > Math.abs(dy) * 1.15) {
+        if (usedTouch || e.pointerType === "touch" || !swipeActive) return;
+        swipeActive = false;
+        const dx = e.clientX - swipeX;
+        const dy = e.clientY - swipeY;
+        if (Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy) * 1.1) {
           suppressClickUntil = Date.now() + 260;
           startTurn(dx < 0 ? 1 : -1);
         }
       });
-      sceneEl?.addEventListener("pointercancel", () => { ptrActive = false; });
+      sceneEl?.addEventListener("pointercancel", () => { swipeActive = false; });
 
-      scheduleNextTurn();
+      scheduleNextTurn(FIRST_HOLD_MS);
     }
 
     heroState.stopFn = () => {
       alive = false;
       clearTimeout(holdTimer);
-      cancelAnims();
+      clearTimeout(turnFallbackTimer);
+      sceneEl?.classList.remove("is-turning-fwd", "is-turning-bwd");
+      bookObserver?.disconnect();
       document.removeEventListener("visibilitychange", onVisChange);
     };
 
@@ -1434,11 +1545,11 @@
         <div class="stat-label">${t("ক্যাটাগরি", "Categories")}</div>
       </div>
       <div class="stat-metric">
-        <div class="stat-val num">${formatNum(totalDl)}</div>
+        <div class="stat-val num" id="homeTotalDlVal">${formatNum(totalDl)}</div>
         <div class="stat-label">${t("ডাউনলোড", "Downloads")}</div>
       </div>
       <a href="support.html" class="stat-metric">
-        <div class="stat-val num">${formatNum(totalSupporters)}</div>
+        <div class="stat-val num" id="homeTotalSupVal">${formatNum(totalSupporters)}</div>
         <div class="stat-label">${t("সাপোর্টার", "Supporters")}</div>
       </a>
     `;
@@ -1490,7 +1601,9 @@
     document.title = t("রিসোর্স · শিখি", "Resources · Shikhi");
     const params = new URLSearchParams(location.search);
     if (!resState.bound) {
-      resState.activeCat = params.get("c") || "all";
+      const rawCat = params.get("c") || "all";
+      const matchedCat = DATA.categories.find((c) => c.slug === rawCat || c.id === rawCat);
+      resState.activeCat = matchedCat ? matchedCat.slug : rawCat;
       resState.searchQuery = params.get("q") || "";
     }
 
@@ -1673,14 +1786,11 @@
   }
 
   let viewedSlug = null;
-  const resBookState = { slug: null, isOpen: true, timerId: 0, anims: [] };
+  const resBookState = { slug: null, isOpen: true, timerId: 0, layerTimerId: 0 };
 
   function stopResBookAnim() {
     clearTimeout(resBookState.timerId);
-    for (const a of resBookState.anims) {
-      try { a.cancel(); } catch {}
-    }
-    resBookState.anims = [];
+    clearTimeout(resBookState.layerTimerId);
   }
 
   function pageResourceDetail() {
@@ -1739,36 +1849,23 @@
                         <img src="assets/logo.svg" alt="" aria-hidden="true">
                         <span>${t("শিখি", "Shikhi")}</span>
                       </span>
-                      <span id="resInsideStat" class="num">↓ ${formatNum(dl)} · 👁 ${formatNum(views)}</span>
+                      <span id="resInsideStat" data-res-id="${esc(r.id)}" class="num">↓ ${formatNum(dl)} · 👁 ${formatNum(views)}</span>
                     </div>
                   </div>
                   <div class="book-gutter-right" aria-hidden="true"></div>
                   <div class="book-cast-shadow book-cast-right" id="resBookCastRight" aria-hidden="true"></div>
                 </div>
 
-                <div class="res-book-flyleaf" id="resBookFlyleaf" aria-hidden="true">
-                  <div class="res-flyleaf-front">
-                    <div class="res-flyleaf-mark">
-                      <img src="assets/logo.svg" alt="" width="30" height="30">
-                    </div>
-                    <div class="book-gutter-right"></div>
-                    <div class="book-leaf-shade" id="resFlyShade"></div>
-                  </div>
-                  <div class="res-flyleaf-back">
-                    <div class="book-gutter-left"></div>
-                  </div>
-                </div>
-
                 <div class="res-book-cover-leaf" id="resBookCoverLeaf">
                   <div class="res-cover-face res-cover-front">
-                    <img src="${esc(r.cover)}" alt="${esc(title)}">
+                    <img id="resBookFrontImg" src="${esc(r.cover)}" alt="${esc(title)}" decoding="sync" fetchpriority="high">
                     <div class="res-cover-spine-crease" aria-hidden="true"></div>
                     <div class="book-leaf-shade" id="resCoverFrontShade"></div>
                     <div class="book-leaf-sheen" id="resCoverFrontSheen"></div>
                   </div>
                   <div class="res-cover-face res-cover-inside">
                     <div class="res-inside-left-plate">
-                      <img src="${esc(r.cover)}" alt="${esc(title)}">
+                      <img src="${esc(r.cover)}" alt="${esc(title)}" decoding="sync" fetchpriority="high">
                     </div>
                     <div class="book-gutter-left" aria-hidden="true"></div>
                     <div class="book-leaf-shade" id="resCoverBackShade"></div>
@@ -1791,7 +1888,7 @@
           <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
             <span class="badge-kind">${esc(categoryName(r.category_id))}</span>
             <span class="badge-free">${esc(r.file_kind.toUpperCase())} · ${t("ফ্রি", "FREE")}</span>
-            <span id="detStatLine" class="num" style="font-size:13.5px;font-weight:700;color:var(--muted);">↓ ${formatNum(dl)} ${t("ডাউনলোড", "downloads")} · 👁 ${formatNum(views)} ${t("ভিউ", "views")}</span>
+            <span id="detStatLine" data-res-id="${esc(r.id)}" class="num" style="font-size:13.5px;font-weight:700;color:var(--muted);">↓ ${formatNum(dl)} ${t("ডাউনলোড", "downloads")} · 👁 ${formatNum(views)} ${t("ভিউ", "views")}</span>
           </div>
           <h1 class="page-title" style="font-size:clamp(24px,3.6vw,42px);margin-bottom:14px;">${esc(title)}</h1>
           <div class="card" style="margin-bottom:20px;">
@@ -1865,21 +1962,14 @@
       }
     `;
 
-    // 60fps GPU-Native Book Opening Controller (CSS Compositor Transition + WAAPI Fly-Leaf & Shadows)
+    // 60fps GPU-Native Book Opening Controller (CSS Compositor Transition + CSS Keyframes — bulletproof on phones & PC)
     const bookWrap = document.getElementById("resBookWrap");
     const bookScene = document.getElementById("resBookScene");
-    const flyLeaf = document.getElementById("resBookFlyleaf");
-    const castRight = document.getElementById("resBookCastRight");
-    const coverFrontShade = document.getElementById("resCoverFrontShade");
-    const coverFrontSheen = document.getElementById("resCoverFrontSheen");
-    const coverBackShade = document.getElementById("resCoverBackShade");
-    const coverBackSheen = document.getElementById("resCoverBackSheen");
-    const flyShade = document.getElementById("resFlyShade");
     const toggleBtn = document.getElementById("resBookToggleBtn");
     const toggleText = document.getElementById("resBookToggleText");
 
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let suppressTapUntil = 0;
+    let autoOpenDone = false;
 
     function updateBookToggleUI(isOpenNow) {
       resBookState.isOpen = isOpenNow;
@@ -1891,88 +1981,48 @@
       bookScene?.setAttribute("aria-expanded", String(isOpenNow));
     }
 
-    function playBookFx(opening) {
-      for (const a of resBookState.anims) {
-        try { a.cancel(); } catch {}
-      }
-      resBookState.anims = [];
-      if (reducedMotion || typeof flyLeaf?.animate !== "function") return;
-
-      const fxOpts = { duration: 880, easing: "cubic-bezier(0.26, 0.82, 0.25, 1)" };
-      const flyOpts = { duration: 820, delay: opening ? 65 : 0, easing: "cubic-bezier(0.26, 0.82, 0.25, 1)" };
-
-      resBookState.anims.push(
-        flyLeaf.animate(
-          opening
-            ? [
-                { opacity: 0, transform: "translate3d(0,0,1px) rotateY(0deg)" },
-                { opacity: 0.85, transform: "translate3d(0,0,3px) rotateY(-90deg)", offset: 0.5 },
-                { opacity: 0, transform: "translate3d(0,0,1px) rotateY(-179deg)" },
-              ]
-            : [
-                { opacity: 0, transform: "translate3d(0,0,1px) rotateY(-179deg)" },
-                { opacity: 0.78, transform: "translate3d(0,0,3px) rotateY(-90deg)", offset: 0.5 },
-                { opacity: 0, transform: "translate3d(0,0,1px) rotateY(0deg)" },
-              ],
-          flyOpts
-        ),
-        flyShade.animate([{ opacity: 0 }, { opacity: 0.16, offset: 0.5 }, { opacity: 0 }], flyOpts),
-        castRight.animate(
-          opening
-            ? [{ opacity: 0 }, { opacity: 0.44, offset: 0.32 }, { opacity: 0, offset: 0.56 }, { opacity: 0 }]
-            : [{ opacity: 0 }, { opacity: 0, offset: 0.44 }, { opacity: 0.44, offset: 0.68 }, { opacity: 0 }],
-          fxOpts
-        ),
-        coverFrontShade.animate(
-          opening
-            ? [{ opacity: 0 }, { opacity: 0.24, offset: 0.5 }, { opacity: 0, offset: 0.52 }, { opacity: 0 }]
-            : [{ opacity: 0 }, { opacity: 0, offset: 0.48 }, { opacity: 0.24, offset: 0.5 }, { opacity: 0 }],
-          fxOpts
-        ),
-        coverBackShade.animate(
-          opening
-            ? [{ opacity: 0 }, { opacity: 0, offset: 0.48 }, { opacity: 0.22, offset: 0.5 }, { opacity: 0 }]
-            : [{ opacity: 0 }, { opacity: 0.22, offset: 0.5 }, { opacity: 0, offset: 0.52 }, { opacity: 0 }],
-          fxOpts
-        ),
-        coverFrontSheen.animate(
-          opening
-            ? [{ opacity: 0, transform: "translate3d(-40%,0,0)" }, { opacity: 0.24, transform: "translate3d(10%,0,0)", offset: 0.44 }, { opacity: 0, transform: "translate3d(42%,0,0)", offset: 0.52 }, { opacity: 0, transform: "translate3d(42%,0,0)" }]
-            : [{ opacity: 0, transform: "translate3d(42%,0,0)" }, { opacity: 0, transform: "translate3d(42%,0,0)", offset: 0.48 }, { opacity: 0.24, transform: "translate3d(10%,0,0)", offset: 0.56 }, { opacity: 0, transform: "translate3d(-40%,0,0)" }],
-          fxOpts
-        ),
-        coverBackSheen.animate(
-          opening
-            ? [{ opacity: 0, transform: "translate3d(40%,0,0)" }, { opacity: 0, transform: "translate3d(40%,0,0)", offset: 0.48 }, { opacity: 0.18, transform: "translate3d(5%,0,0)", offset: 0.56 }, { opacity: 0, transform: "translate3d(-42%,0,0)" }]
-            : [{ opacity: 0, transform: "translate3d(-42%,0,0)" }, { opacity: 0.18, transform: "translate3d(5%,0,0)", offset: 0.44 }, { opacity: 0, transform: "translate3d(40%,0,0)", offset: 0.52 }, { opacity: 0, transform: "translate3d(40%,0,0)" }],
-          fxOpts
-        )
-      );
-    }
-
     function setBookOpen(nextOpen) {
+      autoOpenDone = true;
       clearTimeout(resBookState.timerId);
+      clearTimeout(resBookState.layerTimerId);
       const want = Boolean(nextOpen);
-      bookWrap?.classList.remove("no-anim");
-      if (bookWrap?.classList.contains("is-open") === want) {
+      if (!bookWrap) return;
+      bookWrap.classList.remove("no-anim");
+      if (bookWrap.classList.contains("is-open") === want) {
         updateBookToggleUI(want);
         return;
       }
-      bookWrap?.classList.toggle("is-open", want);
+      bookWrap.classList.remove("fx-open", "fx-close");
+      void bookWrap.offsetWidth;
+      bookWrap.classList.add("is-animating", want ? "fx-open" : "fx-close");
+      bookWrap.classList.toggle("is-open", want);
       updateBookToggleUI(want);
-      playBookFx(want);
+      resBookState.layerTimerId = setTimeout(() => {
+        bookWrap.classList.remove("is-animating", "fx-open", "fx-close");
+      }, 1020);
     }
 
-    if (reducedMotion) {
-      bookWrap?.classList.add("is-open", "no-anim");
+    if (isFreshOpen) {
       updateBookToggleUI(true);
-    } else if (isFreshOpen) {
-      updateBookToggleUI(true);
-      // Wait 280ms so main's 240ms page-enter finishes cleanly before GPU book opening starts!
-      resBookState.timerId = setTimeout(() => setBookOpen(true), 280);
+      const frontImg = document.getElementById("resBookFrontImg");
+      const triggerOpen = () => {
+        if (autoOpenDone) return;
+        clearTimeout(resBookState.timerId);
+        if (document.getElementById("resBookWrap") === bookWrap) {
+          requestAnimationFrame(() => {
+            if (!autoOpenDone) setBookOpen(true);
+          });
+        }
+      };
+      // Wait for main's 240ms page-enter + cover image decode so opening has ZERO flash/glitch!
+      const minWait = new Promise((res) => { resBookState.timerId = setTimeout(res, 290); });
+      const imgReady = frontImg && typeof frontImg.decode === "function"
+        ? Promise.race([frontImg.decode().catch(() => {}), new Promise((res) => setTimeout(res, 260))])
+        : Promise.resolve();
+      Promise.all([minWait, imgReady]).then(triggerOpen);
     } else {
       updateBookToggleUI(resBookState.isOpen);
-      requestAnimationFrame(() => bookWrap?.classList.remove("no-anim"));
+      requestAnimationFrame(() => requestAnimationFrame(() => bookWrap?.classList.remove("no-anim")));
     }
 
     toggleBtn?.addEventListener("click", () => setBookOpen(!bookWrap?.classList.contains("is-open")));
@@ -1993,26 +2043,47 @@
       }
     });
 
-    let bPtrX = 0;
-    let bPtrY = 0;
-    let bPtrDown = false;
+    let bStartX = 0;
+    let bStartY = 0;
+    let bSwipeActive = false;
+    let bUsedTouch = false;
+
+    bookScene?.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1) return;
+      bUsedTouch = true;
+      bStartX = e.touches[0].clientX;
+      bStartY = e.touches[0].clientY;
+      bSwipeActive = true;
+    }, { passive: true });
+    bookScene?.addEventListener("touchend", (e) => {
+      if (!bSwipeActive || !e.changedTouches.length) return;
+      bSwipeActive = false;
+      const dx = e.changedTouches[0].clientX - bStartX;
+      const dy = e.changedTouches[0].clientY - bStartY;
+      if (Math.abs(dx) > 26 && Math.abs(dx) > Math.abs(dy)) {
+        suppressTapUntil = Date.now() + 340;
+        setBookOpen(dx < 0);
+      }
+    }, { passive: true });
+    bookScene?.addEventListener("touchcancel", () => { bSwipeActive = false; }, { passive: true });
+
     bookScene?.addEventListener("pointerdown", (e) => {
-      if (e.button && e.button !== 0) return;
-      bPtrX = e.clientX;
-      bPtrY = e.clientY;
-      bPtrDown = true;
+      if (bUsedTouch || e.pointerType === "touch" || (e.button && e.button !== 0)) return;
+      bStartX = e.clientX;
+      bStartY = e.clientY;
+      bSwipeActive = true;
     });
     bookScene?.addEventListener("pointerup", (e) => {
-      if (!bPtrDown) return;
-      bPtrDown = false;
-      const dx = e.clientX - bPtrX;
-      const dy = e.clientY - bPtrY;
-      if (Math.abs(dx) > 28 && Math.abs(dx) > Math.abs(dy) * 1.15) {
+      if (bUsedTouch || e.pointerType === "touch" || !bSwipeActive) return;
+      bSwipeActive = false;
+      const dx = e.clientX - bStartX;
+      const dy = e.clientY - bStartY;
+      if (Math.abs(dx) > 28 && Math.abs(dx) > Math.abs(dy) * 1.1) {
         suppressTapUntil = Date.now() + 260;
         setBookOpen(dx < 0);
       }
     });
-    bookScene?.addEventListener("pointercancel", () => { bPtrDown = false; });
+    bookScene?.addEventListener("pointercancel", () => { bSwipeActive = false; });
 
     function shareResource() {
       if (navigator.share) {
@@ -2376,8 +2447,9 @@
     document.querySelectorAll(".res-card.is-opening").forEach((el) => el.classList.remove("is-opening"));
   }
 
+  let activePageKey = null;
+
   function navigateSmooth(url) {
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const nav = document.getElementById("mobileNav");
     const bd = document.getElementById("mobileNavBackdrop");
     const btn = document.getElementById("mobileMenuBtn");
@@ -2390,10 +2462,6 @@
       }
       if (!document.querySelector(".modal-backdrop.open")) document.body.style.overflow = "";
     }
-    if (reduced) {
-      location.href = url;
-      return;
-    }
     clearTimeout(navLeaveTimer);
     clearTimeout(navResetTimer);
     document.documentElement.classList.add("page-leaving");
@@ -2402,6 +2470,18 @@
     }, 110);
     // Safety recovery: never allow page to remain stuck faded if navigation is aborted
     navResetTimer = setTimeout(clearLeavingState, 1600);
+  }
+
+  /* ---------- Native Compositor Smooth Scroll Helpers (Zero Wheel Blocking -> 60/120fps+) ---------- */
+  function smoothScrollToY(y) {
+    const maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    const target = Math.max(0, Math.min(maxY, y));
+    window.scrollTo({ top: target, behavior: "smooth" });
+  }
+
+  function refreshActiveStats() {
+    syncLiveStats();
+    if (activePageKey === "me") pageMe();
   }
 
   function initSmoothTransitions() {
@@ -2416,9 +2496,19 @@
       document.body.appendChild(bar);
     }
 
-    window.addEventListener("pageshow", clearLeavingState);
+    window.addEventListener("pageshow", () => {
+      clearLeavingState();
+      refreshActiveStats();
+    });
+    window.addEventListener("focus", refreshActiveStats);
+    window.addEventListener("storage", (e) => {
+      if (!e.key || e.key === STORAGE_ACT || e.key === STORAGE_STATE) refreshActiveStats();
+    });
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") clearLeavingState();
+      if (document.visibilityState === "visible") {
+        clearLeavingState();
+        refreshActiveStats();
+      }
     });
 
     document.addEventListener("click", (e) => {
@@ -2426,7 +2516,16 @@
       const a = e.target.closest("a[href]");
       if (!a || a.target || a.hasAttribute("download")) return;
       const raw = a.getAttribute("href") || "";
-      if (!raw || raw.startsWith("#") || raw.startsWith("mailto:") || raw.startsWith("tel:") || raw.startsWith("javascript:")) return;
+      if (!raw || raw.startsWith("mailto:") || raw.startsWith("tel:") || raw.startsWith("javascript:")) return;
+      if (raw.startsWith("#")) {
+        const targetEl = raw.length > 1 ? document.querySelector(raw) : null;
+        if (targetEl) {
+          e.preventDefault();
+          const top = targetEl.getBoundingClientRect().top + window.scrollY - 84;
+          smoothScrollToY(top);
+        }
+        return;
+      }
       let nextUrl;
       try {
         nextUrl = new URL(raw, location.href);
@@ -2436,7 +2535,18 @@
       const sameProtocol = nextUrl.protocol === location.protocol;
       const sameOrigin = nextUrl.protocol === "file:" ? true : nextUrl.origin === location.origin;
       if (!sameProtocol || !sameOrigin) return;
-      if (nextUrl.pathname === location.pathname && nextUrl.search === location.search) return;
+      if (nextUrl.pathname === location.pathname && nextUrl.search === location.search) {
+        e.preventDefault();
+        if (nextUrl.hash && nextUrl.hash.length > 1) {
+          const hashTarget = document.querySelector(nextUrl.hash);
+          if (hashTarget) {
+            smoothScrollToY(hashTarget.getBoundingClientRect().top + window.scrollY - 84);
+            return;
+          }
+        }
+        if (window.scrollY > 10) smoothScrollToY(0);
+        return;
+      }
       const parentCard = a.closest(".res-card");
       if (parentCard) parentCard.classList.add("is-opening");
       e.preventDefault();
@@ -2446,6 +2556,7 @@
 
   window.MG = {
     init(pageKey) {
+      activePageKey = pageKey;
       initSmoothTransitions();
       ensureModals();
       const renderFn = PAGES[pageKey];

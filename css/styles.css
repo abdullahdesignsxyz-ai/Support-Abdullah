@@ -48,9 +48,9 @@
   --surface-tint: #f7f7f8;
   --surface-yellow: #fffcf0;
   --input-bg: #f6f6f7;
-  --header-bg: rgba(255, 255, 255, 0.92);
-  --tabbar-bg: rgba(255, 255, 255, 0.94);
-  --dock-bg: rgba(255, 255, 255, 0.96);
+  --header-bg: #ffffff;
+  --tabbar-bg: #ffffff;
+  --dock-bg: #ffffff;
   --red: #d71920;
   --red-hover: #b8141a;
   --red-deep: #111114;
@@ -82,9 +82,9 @@
   --surface-tint: #17171c;
   --surface-yellow: #1c1910;
   --input-bg: #19191f;
-  --header-bg: rgba(11, 11, 13, 0.9);
-  --tabbar-bg: rgba(14, 14, 18, 0.94);
-  --dock-bg: rgba(20, 20, 25, 0.96);
+  --header-bg: #0b0b0d;
+  --tabbar-bg: #0e0e12;
+  --dock-bg: #141419;
   --red: #e5222a;
   --red-hover: #f2353d;
   --red-deep: #f5f5f7;
@@ -109,9 +109,11 @@
 html {
   background: var(--bg);
   scroll-behavior: smooth;
+  scroll-padding-top: 84px;
+  -webkit-overflow-scrolling: touch;
   -webkit-font-smoothing: antialiased;
   -webkit-text-size-adjust: 100%;
-  text-rendering: optimizeLegibility;
+  text-rendering: auto;
 }
 
 html.fonts-loading body {
@@ -132,6 +134,7 @@ body {
   font-size: 16px;
   line-height: 1.65;
   overflow-x: hidden;
+  overflow-x: clip;
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
@@ -208,16 +211,15 @@ img {
   padding-inline: clamp(18px, 3vw, 32px);
 }
 
-/* Header */
+/* Header (zero backdrop-filter readback blur — locked 60/120fps threaded scroll!) */
 .site-header {
   position: sticky;
   top: 0;
   z-index: 80;
   padding-block: 13px;
   background: var(--header-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--border);
+  contain: layout style;
 }
 
 .header-inner {
@@ -558,11 +560,13 @@ img {
   width: min(100%, 510px);
   aspect-ratio: 10 / 7;
   perspective: 1800px;
+  -webkit-perspective: 1800px;
   perspective-origin: 50% 48%;
+  -webkit-perspective-origin: 50% 48%;
   touch-action: pan-y;
   user-select: none;
+  -webkit-user-select: none;
   outline: none;
-  contain: layout style;
 }
 
 .book-body {
@@ -570,6 +574,7 @@ img {
   width: 100%;
   height: 100%;
   transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
   border-radius: 14px;
   background: var(--surface);
   box-shadow:
@@ -595,6 +600,7 @@ img {
   bottom: 4px;
   width: 6px;
   pointer-events: none;
+  transform: translateZ(-2px);
   z-index: 1;
 }
 
@@ -636,6 +642,7 @@ img {
   border: 1px solid var(--border-strong);
   padding: 0;
   cursor: pointer;
+  transform: translateZ(0px);
   z-index: 2;
 }
 
@@ -651,7 +658,7 @@ img {
   border-radius: 0 13px 13px 0;
 }
 
-/* Pre-mounted GPU image slots — ZERO img.src swaps or decode flashes! */
+/* Pre-mounted GPU image slots — ZERO img.src swaps! */
 .book-slot-img {
   position: absolute;
   inset: 0;
@@ -662,10 +669,17 @@ img {
   object-position: center top;
   pointer-events: none;
   opacity: 0;
+  visibility: hidden;
 }
 
 .book-slot-img.active {
   opacity: 1;
+  visibility: visible;
+}
+
+/* Keep leaf slot textures GPU-ready on iOS Safari & Android Chrome (opacity only) */
+.book-leaf .book-slot-img {
+  visibility: visible;
 }
 
 /* Realistic concave gutter shadows curving into the center spine */
@@ -738,11 +752,12 @@ img {
     rgba(0, 0, 0, 0.14) 50%,
     rgba(0, 0, 0, 0.28)
   );
+  transform: translateZ(3px);
   pointer-events: none;
   z-index: 5;
 }
 
-/* 3D Turning Page Leaf (100% GPU compositor WAAPI — zero heavy blur shadows!) */
+/* 3D Turning Page Leaf (100% GPU CSS Keyframes — bulletproof across iOS Safari, Android Chrome & PC!) */
 .book-leaf {
   position: absolute;
   top: 0;
@@ -750,15 +765,118 @@ img {
   left: 50%;
   width: 50%;
   transform-origin: 0% 50%;
+  -webkit-transform-origin: 0% 50%;
   transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
   pointer-events: none;
-  visibility: hidden;
+  opacity: 0;
+  transform: translate3d(0, 0, 1.5px) rotateY(0deg);
   z-index: 10;
-  will-change: transform;
 }
 
-.book-leaf.is-turning {
-  visibility: visible;
+.hero-book-scene.is-turning-fwd .book-leaf {
+  opacity: 1;
+  will-change: transform;
+  animation: bookLeafTurnFwd 0.84s cubic-bezier(0.32, 0.06, 0.22, 1) forwards;
+}
+
+.hero-book-scene.is-turning-bwd .book-leaf {
+  opacity: 1;
+  will-change: transform;
+  animation: bookLeafTurnBwd 0.84s cubic-bezier(0.32, 0.06, 0.22, 1) forwards;
+}
+
+.hero-book-scene.is-turning-fwd .book-leaf-front .book-leaf-shade {
+  animation: bookShadeEarly 0.84s linear forwards;
+}
+.hero-book-scene.is-turning-fwd .book-leaf-back .book-leaf-shade {
+  animation: bookShadeLate 0.84s linear forwards;
+}
+.hero-book-scene.is-turning-bwd .book-leaf-front .book-leaf-shade {
+  animation: bookShadeLate 0.84s linear forwards;
+}
+.hero-book-scene.is-turning-bwd .book-leaf-back .book-leaf-shade {
+  animation: bookShadeEarly 0.84s linear forwards;
+}
+
+.hero-book-scene.is-turning-fwd .book-leaf-front .book-leaf-sheen {
+  animation: bookSheenFrontFwd 0.84s linear forwards;
+}
+.hero-book-scene.is-turning-fwd .book-leaf-back .book-leaf-sheen {
+  animation: bookSheenBackFwd 0.84s linear forwards;
+}
+.hero-book-scene.is-turning-bwd .book-leaf-front .book-leaf-sheen {
+  animation: bookSheenFrontBwd 0.84s linear forwards;
+}
+.hero-book-scene.is-turning-bwd .book-leaf-back .book-leaf-sheen {
+  animation: bookSheenBackBwd 0.84s linear forwards;
+}
+
+.hero-book-scene.is-turning-fwd .book-cast-right,
+.hero-book-scene.is-turning-bwd .book-cast-left {
+  animation: bookCastEarly 0.84s linear forwards;
+}
+.hero-book-scene.is-turning-fwd .book-cast-left,
+.hero-book-scene.is-turning-bwd .book-cast-right {
+  animation: bookCastLate 0.84s linear forwards;
+}
+
+@keyframes bookLeafTurnFwd {
+  0% { transform: translate3d(0, 0, 1.5px) rotateY(0deg); }
+  100% { transform: translate3d(0, 0, 1.5px) rotateY(-180deg); }
+}
+
+@keyframes bookLeafTurnBwd {
+  0% { transform: translate3d(0, 0, 1.5px) rotateY(-180deg); }
+  100% { transform: translate3d(0, 0, 1.5px) rotateY(0deg); }
+}
+
+@keyframes bookShadeEarly {
+  0% { opacity: 0; }
+  48% { opacity: 0.24; }
+  52%, 100% { opacity: 0; }
+}
+
+@keyframes bookShadeLate {
+  0%, 48% { opacity: 0; }
+  52% { opacity: 0.22; }
+  100% { opacity: 0; }
+}
+
+@keyframes bookSheenFrontFwd {
+  0% { opacity: 0; transform: translate3d(-40%, 0, 0); }
+  42% { opacity: 0.22; transform: translate3d(10%, 0, 0); }
+  52%, 100% { opacity: 0; transform: translate3d(42%, 0, 0); }
+}
+
+@keyframes bookSheenBackFwd {
+  0%, 48% { opacity: 0; transform: translate3d(40%, 0, 0); }
+  58% { opacity: 0.18; transform: translate3d(5%, 0, 0); }
+  100% { opacity: 0; transform: translate3d(-42%, 0, 0); }
+}
+
+@keyframes bookSheenFrontBwd {
+  0%, 48% { opacity: 0; transform: translate3d(42%, 0, 0); }
+  58% { opacity: 0.22; transform: translate3d(10%, 0, 0); }
+  100% { opacity: 0; transform: translate3d(-40%, 0, 0); }
+}
+
+@keyframes bookSheenBackBwd {
+  0% { opacity: 0; transform: translate3d(-42%, 0, 0); }
+  42% { opacity: 0.18; transform: translate3d(5%, 0, 0); }
+  52%, 100% { opacity: 0; transform: translate3d(40%, 0, 0); }
+}
+
+@keyframes bookCastEarly {
+  0% { opacity: 0; }
+  34% { opacity: 0.36; }
+  54%, 100% { opacity: 0; }
+}
+
+@keyframes bookCastLate {
+  0%, 46% { opacity: 0; }
+  66% { opacity: 0.36; }
+  100% { opacity: 0; }
 }
 
 .book-leaf-face {
@@ -774,13 +892,13 @@ img {
 .book-leaf-front {
   border-left: 0;
   border-radius: 0 13px 13px 0;
-  transform: translateZ(0.4px);
+  transform: translateZ(0.6px);
 }
 
 .book-leaf-back {
   border-right: 0;
   border-radius: 13px 0 0 13px;
-  transform: rotateY(180deg) translateZ(0.4px);
+  transform: rotateY(180deg) translateZ(0.6px);
 }
 
 .book-leaf-shade {
@@ -1171,10 +1289,13 @@ a.stat-metric:hover {
   display: flex;
   flex-direction: column;
   background: transparent;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 360px;
 }
 
 .res-card.is-opening {
   perspective: 900px;
+  -webkit-perspective: 900px;
 }
 
 .res-thumb-wrap {
@@ -1185,6 +1306,7 @@ a.stat-metric:hover {
   border: 1px solid var(--border);
   border-radius: 6px 15px 15px 6px;
   overflow: hidden;
+  contain: layout style paint;
   transform-origin: left center;
   transition: border-color 0.18s ease, transform 0.18s var(--ease);
 }
@@ -1805,7 +1927,8 @@ a.stat-metric:hover {
 }
 
 .sup-slider-shell:hover .sup-marquee-track,
-.sup-slider-shell.paused .sup-marquee-track {
+.sup-slider-shell.paused .sup-marquee-track,
+.sup-slider-shell.offscreen-paused .sup-marquee-track {
   animation-play-state: paused;
 }
 
@@ -2319,7 +2442,7 @@ a.stat-metric:hover {
     font-size: 16px;
   }
 
-  /* Native Frosted Bottom Tab Bar */
+  /* Native Crisp Bottom Tab Bar (no per-frame GPU blur lag) */
   .mobile-tabbar {
     position: fixed;
     left: 0;
@@ -2331,9 +2454,8 @@ a.stat-metric:hover {
     gap: 4px;
     padding: 7px 10px calc(7px + env(safe-area-inset-bottom));
     background: var(--tabbar-bg);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
     border-top: 1px solid var(--border);
+    contain: layout style;
   }
 
   .tabbar-item {
@@ -2362,7 +2484,7 @@ a.stat-metric:hover {
     border: 1px solid var(--border);
   }
 
-  /* Sticky Mobile Resource Dock */
+  /* Sticky Mobile Resource Dock (no per-frame GPU blur lag) */
   .mobile-detail-dock {
     position: fixed;
     left: 10px;
@@ -2376,10 +2498,9 @@ a.stat-metric:hover {
     padding: 9px 10px 9px 13px;
     border-radius: 16px;
     background: var(--dock-bg);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
     border: 1px solid var(--border-strong);
     box-shadow: var(--shadow-md);
+    contain: layout style;
   }
 
   .dock-meta {
@@ -2495,6 +2616,8 @@ a.stat-metric:hover {
   .hero-quick-tags {
     flex-wrap: nowrap;
     overflow-x: auto;
+    scroll-behavior: smooth;
+    overscroll-behavior-x: contain;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     gap: 7px;
@@ -2562,7 +2685,9 @@ a.stat-metric:hover {
   .cat-strip {
     flex-wrap: nowrap;
     overflow-x: auto;
+    scroll-behavior: smooth;
     scroll-snap-type: x proximity;
+    overscroll-behavior-x: contain;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     gap: 7px;
@@ -2802,6 +2927,7 @@ a.stat-metric:hover {
 @media (max-width: 480px) {
   .hero-book-scene {
     perspective: 1350px;
+    -webkit-perspective: 1350px;
   }
 }
 
@@ -2942,12 +3068,14 @@ html.page-leaving main {
   aspect-ratio: 10 / 7;
   margin-inline: auto;
   perspective: 1800px;
+  -webkit-perspective: 1800px;
   perspective-origin: 50% 48%;
+  -webkit-perspective-origin: 50% 48%;
   touch-action: pan-y;
   user-select: none;
+  -webkit-user-select: none;
   outline: none;
   cursor: pointer;
-  contain: layout style;
 }
 
 .res-book-scene:focus-visible {
@@ -2961,8 +3089,13 @@ html.page-leaving main {
   width: 100%;
   height: 100%;
   transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
   transform: translate3d(-25%, 0, 0);
-  transition: transform 0.88s cubic-bezier(0.26, 0.82, 0.25, 1);
+  transition: transform 0.86s cubic-bezier(0.24, 0.84, 0.24, 1);
+}
+
+.res-book-wrap.is-animating .res-book-body,
+.res-book-wrap.is-animating .res-book-cover-leaf {
   will-change: transform;
 }
 
@@ -2985,6 +3118,7 @@ html.page-leaving main {
   bottom: 4px;
   width: 6px;
   pointer-events: none;
+  transform: translateZ(-2px);
   z-index: 1;
 }
 
@@ -3015,7 +3149,7 @@ html.page-leaving main {
   border: 1px solid var(--border-strong);
   border-right: 0;
   opacity: 0;
-  transition: opacity 0.25s ease 0.52s;
+  transition: opacity 0.28s ease 0.48s;
 }
 
 .res-book-wrap.is-open .res-book-edges-left {
@@ -3029,12 +3163,13 @@ html.page-leaving main {
   bottom: 0;
   left: 50%;
   width: 50%;
-  border-radius: 3px 13px 13px 3px;
+  border-radius: 0 13px 13px 0;
   overflow: hidden;
   background: #fdfcf9;
   border: 1px solid var(--border-strong);
   border-left: 0;
   box-shadow: 0 18px 34px -22px rgba(0, 0, 0, 0.28);
+  transform: translateZ(0px);
   z-index: 2;
 }
 
@@ -3138,58 +3273,41 @@ html.page-leaving main {
   border-radius: 3px;
 }
 
-/* Translucent Vellum Fly-Leaf Sheet (100% GPU WAAPI flutter behind hardcover) */
-.res-book-flyleaf {
-  position: absolute;
-  top: 1px;
-  bottom: 1px;
-  left: 50%;
-  width: calc(50% - 1px);
-  transform-origin: 0% 50%;
-  transform-style: preserve-3d;
-  pointer-events: none;
-  opacity: 0;
-  z-index: 6;
-  will-change: transform, opacity;
+/* Synchronized GPU Cast Shadow & Specular Lighting on Open / Close */
+.res-book-wrap.fx-open #resBookCastRight {
+  animation: bookCastEarly 0.86s linear forwards;
+}
+.res-book-wrap.fx-close #resBookCastRight {
+  animation: bookCastLate 0.86s linear forwards;
 }
 
-.res-flyleaf-front,
-.res-flyleaf-back {
-  position: absolute;
-  inset: 0;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  border: 1px solid var(--border);
+.res-book-wrap.fx-open #resCoverFrontShade {
+  animation: bookShadeEarly 0.86s linear forwards;
+}
+.res-book-wrap.fx-open #resCoverBackShade {
+  animation: bookShadeLate 0.86s linear forwards;
+}
+.res-book-wrap.fx-close #resCoverFrontShade {
+  animation: bookShadeLate 0.86s linear forwards;
+}
+.res-book-wrap.fx-close #resCoverBackShade {
+  animation: bookShadeEarly 0.86s linear forwards;
 }
 
-.res-flyleaf-front {
-  border-left: 0;
-  border-radius: 0 12px 12px 0;
-  background: rgba(255, 255, 255, 0.92);
-  display: grid;
-  place-items: center;
-  transform: translateZ(0.3px);
+.res-book-wrap.fx-open #resCoverFrontSheen {
+  animation: bookSheenFrontFwd 0.86s linear forwards;
+}
+.res-book-wrap.fx-open #resCoverBackSheen {
+  animation: bookSheenBackFwd 0.86s linear forwards;
+}
+.res-book-wrap.fx-close #resCoverFrontSheen {
+  animation: bookSheenFrontBwd 0.86s linear forwards;
+}
+.res-book-wrap.fx-close #resCoverBackSheen {
+  animation: bookSheenBackBwd 0.86s linear forwards;
 }
 
-.res-flyleaf-back {
-  border-right: 0;
-  border-radius: 12px 0 0 12px;
-  background: rgba(250, 249, 246, 0.94);
-  transform: rotateY(180deg) translateZ(0.3px);
-}
-
-[data-theme="dark"] .res-flyleaf-front,
-[data-theme="dark"] .res-flyleaf-back {
-  background: rgba(26, 26, 33, 0.92);
-}
-
-.res-flyleaf-mark {
-  opacity: 0.28;
-  display: grid;
-  place-items: center;
-}
-
-/* 3D Hardcover Front Leaf (100% GPU CSS transition — smoothly interrupts & reverses!) */
+/* 3D Hardcover Front Leaf (Pixel-aligned z=1.5px — zero height step, zero flyleaf flicker!) */
 .res-book-cover-leaf {
   position: absolute;
   top: 0;
@@ -3197,15 +3315,16 @@ html.page-leaving main {
   left: 50%;
   width: 50%;
   transform-origin: 0% 50%;
+  -webkit-transform-origin: 0% 50%;
   transform-style: preserve-3d;
-  transform: translate3d(0, 0, 2px) rotateY(0deg);
-  transition: transform 0.88s cubic-bezier(0.26, 0.82, 0.25, 1);
+  -webkit-transform-style: preserve-3d;
+  transform: translate3d(0, 0, 1.5px) rotateY(0deg);
+  transition: transform 0.86s cubic-bezier(0.24, 0.84, 0.24, 1);
   z-index: 10;
-  will-change: transform;
 }
 
 .res-book-wrap.is-open .res-book-cover-leaf {
-  transform: translate3d(0, 0, 2px) rotateY(-180deg);
+  transform: translate3d(0, 0, 1.5px) rotateY(-180deg);
 }
 
 .res-cover-face {
@@ -3220,7 +3339,7 @@ html.page-leaving main {
 
 .res-cover-front {
   border-radius: 4px 13px 13px 4px;
-  transform: translateZ(0.5px);
+  transform: translateZ(0.6px);
 }
 
 .res-cover-front img {
@@ -3249,7 +3368,7 @@ html.page-leaving main {
 .res-cover-inside {
   border-right: 0;
   border-radius: 13px 0 0 13px;
-  transform: rotateY(180deg) translateZ(0.5px);
+  transform: rotateY(180deg) translateZ(0.6px);
   background: var(--surface);
 }
 
@@ -3314,6 +3433,7 @@ html.page-leaving main {
 @media (max-width: 520px) {
   .res-book-scene {
     perspective: 1350px;
+    -webkit-perspective: 1350px;
   }
   .res-inside-excerpt {
     -webkit-line-clamp: 3;
@@ -3323,9 +3443,6 @@ html.page-leaving main {
     -webkit-line-clamp: 2;
   }
   .res-book-page-right {
-    border-radius: 3px 10px 10px 3px;
-  }
-  .res-book-wrap.is-open .res-book-page-right {
     border-radius: 0 10px 10px 0;
   }
   .res-cover-front {
@@ -3367,15 +3484,4 @@ html.page-leaving main {
 
 .tabbar-item:active {
   transform: scale(0.95);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.001ms !important;
-    transition-duration: 0.001ms !important;
-  }
-  html.page-leaving main {
-    opacity: 1;
-    transform: none;
-  }
 }
